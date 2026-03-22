@@ -1,0 +1,187 @@
+{
+  "name": "employee_onboarding",
+  "description": "Automated employee onboarding workflow with background checks, equipment provisioning, and training",
+  "version": "1.0",
+  "sla_hours": 48,
+  "steps": [
+    {
+      "step_id": "verify_employee_data",
+      "name": "Verify Employee Data",
+      "type": "data_agent",
+      "description": "Validate employee information and permissions",
+      "action": "load_employee_data",
+      "dependencies": [],
+      "timeout_seconds": 60,
+      "fallback_step": "data_error_handler"
+    },
+    {
+      "step_id": "trigger_background_check",
+      "name": "Trigger Background Check",
+      "type": "action_agent",
+      "description": "Submit background check request to external vendor",
+      "action": "submit_background_check",
+      "dependencies": ["verify_employee_data"],
+      "timeout_seconds": 120,
+      "fallback_step": "escalate_background"
+    },
+    {
+      "step_id": "create_it_accounts",
+      "name": "Create IT Accounts",
+      "type": "action_agent",
+      "description": "Provision email, VPN, and system accounts",
+      "action": "provision_it_accounts",
+      "dependencies": ["verify_employee_data"],
+      "timeout_seconds": 180,
+      "fallback_step": "escalate_it"
+    },
+    {
+      "step_id": "setup_workspace",
+      "name": "Setup Physical Workspace",
+      "type": "action_agent",
+      "description": "Order equipment and prepare office space",
+      "action": "setup_workspace",
+      "dependencies": ["verify_employee_data"],
+      "timeout_seconds": 300,
+      "fallback_step": "escalate_facilities"
+    },
+    {
+      "step_id": "assign_onboarding_buddy",
+      "name": "Assign Onboarding Buddy",
+      "type": "data_agent",
+      "description": "Select buddy based on team and experience",
+      "action": "find_onboarding_buddy",
+      "dependencies": ["verify_employee_data"],
+      "timeout_seconds": 60
+    },
+    {
+      "step_id": "notify_buddy",
+      "name": "Notify Onboarding Buddy",
+      "type": "action_agent",
+      "description": "Send email to buddy with onboarding details",
+      "action": "send_buddy_notification",
+      "dependencies": ["assign_onboarding_buddy"],
+      "timeout_seconds": 30
+    },
+    {
+      "step_id": "enroll_training",
+      "name": "Enroll in Training Programs",
+      "type": "action_agent",
+      "description": "Register for company and role-specific training",
+      "action": "enroll_training",
+      "dependencies": ["verify_employee_data"],
+      "timeout_seconds": 90
+    },
+    {
+      "step_id": "schedule_first_day",
+      "name": "Schedule First Day Activities",
+      "type": "action_agent",
+      "description": "Calendar blocked time for orientation and team meetings",
+      "action": "schedule_first_day",
+      "dependencies": ["verify_employee_data", "assign_onboarding_buddy"],
+      "timeout_seconds": 60
+    },
+    {
+      "step_id": "wait_background_check",
+      "name": "Monitor Background Check",
+      "type": "monitoring_agent",
+      "description": "Poll for background check completion",
+      "action": "poll_background_check",
+      "dependencies": ["trigger_background_check"],
+      "timeout_seconds": 3600
+    },
+    {
+      "step_id": "verify_it_access",
+      "name": "Verify IT Access",
+      "type": "verification_agent",
+      "description": "Confirm all IT accounts and access are active",
+      "action": "verify_it_access",
+      "dependencies": ["create_it_accounts"],
+      "timeout_seconds": 120
+    },
+    {
+      "step_id": "compile_checklist",
+      "name": "Compile Onboarding Checklist",
+      "type": "action_agent",
+      "description": "Create summary document with all completed items",
+      "action": "compile_checklist",
+      "dependencies": [
+        "wait_background_check",
+        "verify_it_access",
+        "setup_workspace",
+        "enroll_training",
+        "schedule_first_day"
+      ],
+      "timeout_seconds": 60
+    },
+    {
+      "step_id": "send_welcome_email",
+      "name": "Send Welcome Email",
+      "type": "action_agent",
+      "description": "Send welcome packet with onboarding info",
+      "action": "send_welcome_email",
+      "dependencies": ["compile_checklist"],
+      "timeout_seconds": 30
+    },
+    {
+      "step_id": "log_onboarding_complete",
+      "name": "Log Completion",
+      "type": "communication_agent",
+      "description": "Record onboarding workflow completion",
+      "action": "log_completion",
+      "dependencies": ["send_welcome_email"],
+      "timeout_seconds": 30
+    },
+    {
+      "step_id": "data_error_handler",
+      "name": "Handle Data Error",
+      "type": "communication_agent",
+      "description": "Escalate data validation errors",
+      "action": "escalate_data_error",
+      "dependencies": []
+    },
+    {
+      "step_id": "escalate_background",
+      "name": "Escalate Background Check Issue",
+      "type": "communication_agent",
+      "description": "Alert HR if background check submission fails",
+      "action": "escalate_background_issue",
+      "dependencies": []
+    },
+    {
+      "step_id": "escalate_it",
+      "name": "Escalate IT Provisioning Issue",
+      "type": "communication_agent",
+      "description": "Alert IT if account provisioning fails",
+      "action": "escalate_it_issue",
+      "dependencies": []
+    },
+    {
+      "step_id": "escalate_facilities",
+      "name": "Escalate Facilities Issue",
+      "type": "communication_agent",
+      "description": "Alert facilities if workspace setup fails",
+      "action": "escalate_facilities_issue",
+      "dependencies": []
+    }
+  ],
+  "conditional_routes": [
+    {
+      "from_step": "wait_background_check",
+      "condition": {
+        "type": "and",
+        "conditions": [
+          {"field": "status", "operator": "equals", "value": "completed"},
+          {"field": "result", "operator": "equals", "value": "passed"}
+        ]
+      },
+      "true_step": "compile_checklist",
+      "false_step": "escalate_background"
+    }
+  ],
+  "parallel_steps": [
+    ["create_it_accounts", "setup_workspace", "assign_onboarding_buddy", "enroll_training"]
+  ],
+  "timeout_seconds": 172800,
+  "max_retries": 1,
+  "enabled": true
+}
