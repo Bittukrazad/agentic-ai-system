@@ -1,4 +1,81 @@
-venv/
-__pycache__/
-*.pyc
+# =============================================================================
+# Agentic AI — Autonomous Enterprise Workflows
+# .gitignore
+# =============================================================================
+
+# ── Secrets ───────────────────────────────────────────────────────────────────
 .env
+.env.production
+.env.staging
+google_token.json
+token.json
+*_credentials.json
+service_account*.json
+secrets/
+
+# ── Runtime data (generated at runtime, not source) ──────────────────────────
+audit/decision_logs.json
+audit/trace_logs.json
+memory/workflow_state_store.json
+uploads/
+data/
+
+# ── Database ──────────────────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Redis ─────────────────────────────────────────────────────────────────────
+dump.rdb
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyc
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# ── Tests & coverage ─────────────────────────────────────────────────────────
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Streamlit ─────────────────────────────────────────────────────────────────
+.streamlit/secrets.toml
+.streamlit/cache/
+
+# ── Docker volumes ────────────────────────────────────────────────────────────
+docker-volumes/
+redis-data/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*~
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Archives ──────────────────────────────────────────────────────────────────
+*.zip
+*.tar.gz
+
+# ── Safe to commit (do NOT ignore these) ─────────────────────────────────────
+# .env.example        ← reference template, no real secrets
+# .env.development    ← mock keys only, safe
+# .env.test           ← mock keys only, safe
+# requirements.txt
+# workflows/*.json
+# All *.py source files

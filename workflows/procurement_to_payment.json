@@ -1,197 +1,78 @@
 {
-  "name": "procurement_to_payment",
-  "description": "Procure-to-pay workflow from purchase request through invoice and payment",
-  "version": "1.0",
-  "sla_hours": 96,
+  "id": "procurement_to_payment",
+  "name": "Procurement-to-Payment Workflow",
+  "description": "End-to-end procurement from purchase request through vendor payment",
+  "sla_hours": 72,
   "steps": [
     {
-      "step_id": "receive_purchase_request",
-      "name": "Receive Purchase Request",
-      "type": "data_agent",
-      "description": "Load and validate purchase request",
-      "action": "load_purchase_request",
-      "dependencies": [],
-      "timeout_seconds": 60
+      "id": "fetch_vendor_data",
+      "name": "Fetch vendor record and contract",
+      "agent": "data_agent",
+      "critical": true,
+      "source": "vendor_db",
+      "params": {}
     },
     {
-      "step_id": "verify_budget",
-      "name": "Verify Budget",
-      "type": "verification_agent",
-      "description": "Check budget availability and approvals",
-      "action": "verify_budget_availability",
-      "dependencies": ["receive_purchase_request"],
-      "timeout_seconds": 120
+      "id": "fetch_approval_rules",
+      "name": "Fetch approval authority matrix",
+      "agent": "data_agent",
+      "critical": true,
+      "source": "approval_rules",
+      "params": {}
     },
     {
-      "step_id": "search_suppliers",
-      "name": "Search Suppliers",
-      "type": "data_agent",
-      "description": "Query supplier catalog for best pricing",
-      "action": "search_suppliers",
-      "dependencies": ["verify_budget"],
-      "timeout_seconds": 180
+      "id": "decide_approval_route",
+      "name": "Determine approval route based on amount",
+      "agent": "decision_agent",
+      "critical": true,
+      "params": { "prompt_key": "decide_approval_route" }
     },
     {
-      "step_id": "compare_quotes",
-      "name": "Compare Quotes",
-      "type": "decision_agent",
-      "description": "Analyze supplier quotes and select best option",
-      "action": "compare_and_rank_quotes",
-      "dependencies": ["search_suppliers"],
-      "timeout_seconds": 120
+      "id": "create_purchase_order",
+      "name": "Create and number the purchase order",
+      "agent": "action_agent",
+      "critical": true,
+      "params": { "action_type": "create_purchase_order" }
     },
     {
-      "step_id": "route_approval_by_amount",
-      "name": "Route for Approval",
-      "type": "decision_agent",
-      "description": "Determine approval level based on amount",
-      "action": "determine_approval_level",
-      "dependencies": ["compare_quotes"],
-      "timeout_seconds": 60
+      "id": "notify_approver",
+      "name": "Notify designated approver",
+      "agent": "action_agent",
+      "critical": true,
+      "params": {
+        "action_type": "send_email",
+        "subject": "Approval required: Purchase Order",
+        "body": "A purchase order requires your approval. Please review and respond within 24 hours."
+      }
     },
     {
-      "step_id": "get_approval",
-      "name": "Get Approval",
-      "type": "action_agent",
-      "description": "Request manager approval",
-      "action": "request_purchase_approval",
-      "dependencies": ["route_approval_by_amount"],
-      "timeout_seconds": 3600
+      "id": "verify_approval",
+      "name": "Verify approval received within SLA",
+      "agent": "decision_agent",
+      "critical": true,
+      "params": { "prompt_key": "verify_approval_received" }
     },
     {
-      "step_id": "create_purchase_order",
-      "name": "Create Purchase Order",
-      "type": "action_agent",
-      "description": "Generate and send PO to supplier",
-      "action": "create_purchase_order",
-      "dependencies": ["get_approval"],
-      "timeout_seconds": 300
+      "id": "notify_vendor",
+      "name": "Notify vendor of approved PO",
+      "agent": "action_agent",
+      "critical": true,
+      "params": {
+        "action_type": "send_email",
+        "subject": "Purchase Order Approved",
+        "body": "Your purchase order has been approved. Please proceed with delivery per agreed terms."
+      }
     },
     {
-      "step_id": "monitor_delivery",
-      "name": "Monitor Delivery",
-      "type": "monitoring_agent",
-      "description": "Track shipment and delivery status",
-      "action": "monitor_shipment",
-      "dependencies": ["create_purchase_order"],
-      "timeout_seconds": 604800
-    },
-    {
-      "step_id": "receive_goods",
-      "name": "Receive Goods",
-      "type": "action_agent",
-      "description": "Log receipt and perform quality checks",
-      "action": "log_goods_receipt",
-      "dependencies": ["monitor_delivery"],
-      "timeout_seconds": 1800
-    },
-    {
-      "step_id": "validate_receipt",
-      "name": "Validate Receipt",
-      "type": "verification_agent",
-      "description": "Verify goods match PO and are in good condition",
-      "action": "validate_goods_receipt",
-      "dependencies": ["receive_goods"],
-      "timeout_seconds": 600
-    },
-    {
-      "step_id": "process_invoice",
-      "name": "Process Invoice",
-      "type": "action_agent",
-      "description": "Receive and validate invoice from supplier",
-      "action": "process_supplier_invoice",
-      "dependencies": ["validate_receipt"],
-      "timeout_seconds": 300
-    },
-    {
-      "step_id": "match_3way",
-      "name": "3-Way Match",
-      "type": "verification_agent",
-      "description": "Verify PO, Receipt, and Invoice match",
-      "action": "perform_3way_match",
-      "dependencies": ["process_invoice"],
-      "timeout_seconds": 300
-    },
-    {
-      "step_id": "approve_payment",
-      "name": "Approve Payment",
-      "type": "action_agent",
-      "description": "Route invoice for payment approval",
-      "action": "approve_invoice_payment",
-      "dependencies": ["match_3way"],
-      "timeout_seconds": 1800
-    },
-    {
-      "step_id": "process_payment",
-      "name": "Process Payment",
-      "type": "action_agent",
-      "description": "Execute payment to supplier",
-      "action": "execute_payment",
-      "dependencies": ["approve_payment"],
-      "timeout_seconds": 300
-    },
-    {
-      "step_id": "record_transaction",
-      "name": "Record Transaction",
-      "type": "action_agent",
-      "description": "Post to general ledger",
-      "action": "post_to_ledger",
-      "dependencies": ["process_payment"],
-      "timeout_seconds": 120
-    },
-    {
-      "step_id": "close_purchase_order",
-      "name": "Close Purchase Order",
-      "type": "action_agent",
-      "description": "Mark PO as complete",
-      "action": "close_purchase_order",
-      "dependencies": ["record_transaction"],
-      "timeout_seconds": 60
-    },
-    {
-      "step_id": "archive_documents",
-      "name": "Archive Documents",
-      "type": "action_agent",
-      "description": "Store all procurement documents",
-      "action": "archive_procurement_docs",
-      "dependencies": ["close_purchase_order"],
-      "timeout_seconds": 300
-    },
-    {
-      "step_id": "log_completion",
-      "name": "Log Completion",
-      "type": "communication_agent",
-      "description": "Record workflow completion",
-      "action": "log_completion",
-      "dependencies": ["archive_documents"],
-      "timeout_seconds": 30
+      "id": "log_payment_record",
+      "name": "Log payment obligation in finance system",
+      "agent": "action_agent",
+      "critical": true,
+      "params": {
+        "action_type": "write_db",
+        "table": "payment_obligations",
+        "data": { "status": "approved", "payment_terms": "Net 30" }
+      }
     }
-  ],
-  "conditional_routes": [
-    {
-      "from_step": "route_approval_by_amount",
-      "condition": {
-        "type": "and",
-        "conditions": [
-          {"field": "total_amount", "operator": "greater_than", "value": 50000}
-        ]
-      },
-      "true_step": "get_approval",
-      "false_step": "create_purchase_order"
-    },
-    {
-      "from_step": "validate_receipt",
-      "condition": {
-        "type": "and",
-        "conditions": [
-          {"field": "match_status", "operator": "equals", "value": "pass"}
-        ]
-      },
-      "true_step": "process_invoice",
-      "false_step": "log_completion"
-    }
-  ],
-  "timeout_seconds": 1209600,
-  "max_retries": 2,
-  "enabled": true
+  ]
 }

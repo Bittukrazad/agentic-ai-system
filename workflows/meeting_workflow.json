@@ -1,137 +1,50 @@
 {
-  "name": "meeting_workflow",
-  "description": "Automatic meeting intelligence and action generation workflow",
-  "version": "1.0",
-  "sla_hours": 4,
+  "id": "meeting_workflow",
+  "name": "Meeting Intelligence Workflow",
+  "description": "End-to-end meeting transcript processing — from upload to task tracking",
+  "sla_hours": 1,
   "steps": [
     {
-      "step_id": "transcript_parse",
-      "name": "Parse Meeting Transcript",
-      "type": "data_agent",
-      "description": "Extract text from meeting recording/transcript",
-      "action": "load_transcript",
-      "dependencies": [],
-      "timeout_seconds": 120,
-      "fallback_step": "error_handler"
+      "id": "parse_transcript",
+      "name": "Parse transcript",
+      "agent": "transcript_parser",
+      "critical": true,
+      "params": {}
     },
     {
-      "step_id": "decision_extract",
-      "name": "Extract Decisions",
-      "type": "decision_agent",
-      "description": "Use LLM to identify key decisions",
-      "action": "extract_decisions",
-      "dependencies": ["transcript_parse"],
-      "timeout_seconds": 180,
-      "fallback_step": "manual_review"
+      "id": "extract_decisions",
+      "name": "Extract decisions and action items",
+      "agent": "decision_extractor",
+      "critical": true,
+      "params": { "prompt_key": "extract_decisions" }
     },
     {
-      "step_id": "task_generation",
-      "name": "Generate Action Tasks",
-      "type": "decision_agent",
-      "description": "Create actionable tasks from decisions",
-      "action": "generate_tasks",
-      "dependencies": ["decision_extract"],
-      "timeout_seconds": 120,
-      "fallback_step": "manual_review"
+      "id": "generate_tasks",
+      "name": "Generate structured tasks",
+      "agent": "task_generator",
+      "critical": true,
+      "params": {}
     },
     {
-      "step_id": "owner_assignment",
-      "name": "Assign Task Owners",
-      "type": "data_agent",
-      "description": "Determine responsibility matrix",
-      "action": "assign_owners",
-      "dependencies": ["task_generation"],
-      "timeout_seconds": 90,
-      "fallback_step": "escalate_assignment"
+      "id": "assign_owners",
+      "name": "Assign task owners",
+      "agent": "owner_assigner",
+      "critical": true,
+      "params": {}
     },
     {
-      "step_id": "send_notifications",
-      "name": "Send Notifications",
-      "type": "action_agent",
-      "description": "Notify task owners via email and Slack",
-      "action": "send_notifications",
-      "dependencies": ["owner_assignment"],
-      "timeout_seconds": 120
+      "id": "notify_owners",
+      "name": "Notify task owners via Slack / email",
+      "agent": "action_agent",
+      "critical": false,
+      "params": { "action_type": "send_slack" }
     },
     {
-      "step_id": "create_tracking",
-      "name": "Create Tracking Records",
-      "type": "action_agent",
-      "description": "Create records in task tracking system",
-      "action": "create_tracking_records",
-      "dependencies": ["owner_assignment"],
-      "timeout_seconds": 90
-    },
-    {
-      "step_id": "verify_output",
-      "name": "Verify Completeness",
-      "type": "verification_agent",
-      "description": "Validate all tasks were created and owners notified",
-      "action": "verify_output",
-      "dependencies": ["send_notifications", "create_tracking"],
-      "timeout_seconds": 60
-    },
-    {
-      "step_id": "log_completion",
-      "name": "Log Completion",
-      "type": "communication_agent",
-      "description": "Record workflow completion in audit trail",
-      "action": "log_completion",
-      "dependencies": ["verify_output"],
-      "timeout_seconds": 30
-    },
-    {
-      "step_id": "error_handler",
-      "name": "Handle Parse Error",
-      "type": "communication_agent",
-      "description": "Escalate transcript parsing failure",
-      "action": "escalate_error",
-      "dependencies": []
-    },
-    {
-      "step_id": "manual_review",
-      "name": "Queue for Manual Review",
-      "type": "communication_agent",
-      "description": "Route to human review if LLM uncertain",
-      "action": "queue_manual_review",
-      "dependencies": []
-    },
-    {
-      "step_id": "escalate_assignment",
-      "name": "Escalate Assignment Issue",
-      "type": "communication_agent",
-      "description": "Alert management if owner assignment fails",
-      "action": "escalate_assignment_issue",
-      "dependencies": []
+      "id": "register_tracking",
+      "name": "Register tasks for progress tracking",
+      "agent": "progress_tracker",
+      "critical": false,
+      "params": {}
     }
-  ],
-  "conditional_routes": [
-    {
-      "from_step": "decision_extract",
-      "condition": {
-        "type": "or",
-        "conditions": [
-          {"field": "confidence_score", "operator": "less_than", "value": 0.6},
-          {"field": "decision_count", "operator": "equals", "value": 0}
-        ]
-      },
-      "true_step": "manual_review",
-      "false_step": "task_generation"
-    },
-    {
-      "from_step": "task_generation",
-      "condition": {
-        "type": "and",
-        "conditions": [
-          {"field": "task_count", "operator": "greater_than", "value": 0},
-          {"field": "has_owners", "operator": "equals", "value": true}
-        ]
-      },
-      "true_step": "owner_assignment",
-      "false_step": "manual_review"
-    }
-  ],
-  "timeout_seconds": 900,
-  "max_retries": 2,
-  "enabled": true
+  ]
 }

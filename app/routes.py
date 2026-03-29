@@ -1,513 +1,355 @@
-"""
-API Routes - FastAPI routes for workflow, audit, and agent management.
-
-Provides:
-- POST /workflow/trigger - Start workflow
-- GET /workflow/{workflow_id} - Get workflow status
-- GET /workflow/{workflow_id}/state - Get detailed state
-- GET /audit/logs - Query audit logs
-- GET /audit/trace/{workflow_id} - Get workflow trace
-- POST /agent/health - Agent health check
-- GET /agents - List registered agents
-"""
-
-from fastapi import APIRouter, Query, HTTPException, BackgroundTasks
-from typing import Dict, Any, Optional, List
+"""app/routes.py — All API route definitions"""
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel
-from pathlib import Path
+from typing import Optional, List
+import uuid
 
-from app.config import Settings
-from app.main import app_state
-from utils.logger import get_logger
+from orchestrator.orchestrator import Orchestrator
 from audit.audit_logger import AuditLogger
-from utils.helpers import load_json_file, load_jsonl_file
+from memory.short_term_memory import ShortTermMemory
+from utils.logger import get_logger
 
 logger = get_logger(__name__)
-config = Settings()
+router       = APIRouter()
+orchestrator = Orchestrator()
+audit        = AuditLogger()
 
 
-# Request/Response models
+# ── Request / Response Models ─────────────────────────────────────────────────
+
 class WorkflowTriggerRequest(BaseModel):
-    """Workflow trigger request."""
-    workflow_name: str
-    input_data: Dict[str, Any] = {}
-    priority: str = "medium"
-    metadata: Dict[str, Any] = {}
+    workflow_type: str
+    payload:       dict
+    priority:      Optional[str] = "normal"
 
 
-class WorkflowResponse(BaseModel):
-    """Workflow execution response."""
-    success: bool
+class TaskApprovalRequest(BaseModel):
+    workflow_id:  str
+    step_name:    str
+    approved:     bool
+    human_input:  Optional[dict] = None
+    approver_id:  str
+
+
+class TaskUpdateRequest(BaseModel):
+    """Employee or manager marks a task done / in-progress / needs help"""
     workflow_id: str
-    workflow_name: str
-    status: str
-    message: str = ""
+    task_id:     str
+    status:      str             # done | in_progress | needs_help | pending
+    note:        Optional[str] = ""
+    updated_by:  Optional[str] = "employee"
 
 
-class WorkflowStateResponse(BaseModel):
-    """Workflow state response."""
-    workflow_id: str
-    workflow_name: str
-    status: str
-    started_at: str
-    current_step: Optional[str]
-    completed_steps: int
-    total_steps: int
-    progress_percentage: float
-    sla_status: str
-    steps_detail: List[Dict[str, Any]] = []
+class WorkflowStatusResponse(BaseModel):
+    workflow_id:           str
+    status:                str
+    current_step:          str
+    completed_steps:       List[str]
+    retry_count:           int
+    sla_remaining_minutes: Optional[float]
 
 
-class AuditLogQuery(BaseModel):
-    """Audit log query."""
-    workflow_id: Optional[str] = None
-    agent_name: Optional[str] = None
-    action_type: Optional[str] = None
-    limit: int = 100
+# ── Health ────────────────────────────────────────────────────────────────────
+
+@router.get("/health")
+async def health_check():
+    """System health check"""
+    return {"status": "ok", "service": "agentic-ai-system"}
 
 
-class AgentHealthRequest(BaseModel):
-    """Agent health check request."""
-    agent_name: str
-    status: str = "healthy"
-    metrics: Dict[str, Any] = {}
+# ── Workflow Triggers ─────────────────────────────────────────────────────────
+
+@router.post("/workflow/trigger")
+async def trigger_workflow(request: WorkflowTriggerRequest, background_tasks: BackgroundTasks):
+    """Trigger any enterprise workflow by type"""
+    workflow_id = str(uuid.uuid4())
+    logger.info(f"Triggering workflow: {request.workflow_type} | id={workflow_id}")
+    background_tasks.add_task(
+        orchestrator.run_workflow,
+        workflow_id=workflow_id,
+        workflow_type=request.workflow_type,
+        payload=request.payload,
+        priority=request.priority,
+    )
+    return {
+        "workflow_id": workflow_id,
+        "status":      "started",
+        "message":     f"Workflow {request.workflow_type} initiated",
+    }
 
 
-# Routers
-workflow_router = APIRouter(prefix="/workflow", tags=["workflow"])
-audit_router = APIRouter(prefix="/audit", tags=["audit"])
-agent_router = APIRouter(prefix="/agent", tags=["agent"])
+@router.post("/meeting/upload")
+async def upload_meeting_transcript(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+):
+    """Upload a meeting transcript (.txt) to trigger meeting intelligence"""
+    workflow_id = str(uuid.uuid4())
+    content     = await file.read()
+    text        = content.decode("utf-8", errors="ignore")
+    logger.info(f"Meeting transcript uploaded | workflow_id={workflow_id} | size={len(text)} chars")
+    background_tasks.add_task(
+        orchestrator.run_workflow,
+        workflow_id=workflow_id,
+        workflow_type="meeting",
+        payload={"transcript": text, "filename": file.filename},
+        priority="normal",
+    )
+    return {
+        "workflow_id": workflow_id,
+        "status":      "processing",
+        "message":     "Meeting transcript received",
+    }
 
 
-# Workflow Routes
-@workflow_router.post("/trigger", response_model=WorkflowResponse)
-async def trigger_workflow(
-    request: WorkflowTriggerRequest,
-    background_tasks: BackgroundTasks
-) -> Dict[str, Any]:
+# ── Status & Tasks ────────────────────────────────────────────────────────────
+
+@router.get("/workflow/{workflow_id}/status")
+async def get_workflow_status(workflow_id: str):
+    """Get real-time status of a running workflow"""
+    state = ShortTermMemory.get_state(workflow_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return WorkflowStatusResponse(
+        workflow_id=workflow_id,
+        status=state.get("status", "unknown"),
+        current_step=state.get("current_step", ""),
+        completed_steps=state.get("completed_steps", []),
+        retry_count=state.get("retry_count", 0),
+        sla_remaining_minutes=state.get("sla_remaining_minutes"),
+    )
+
+
+@router.get("/workflow/{workflow_id}/tasks")
+async def get_workflow_tasks(workflow_id: str):
+    """Get all tasks generated by a meeting or workflow run"""
+    # Check workflow state first
+    state = ShortTermMemory.get_state(workflow_id)
+
+    # Also check tracker store
+    tracker_key   = f"tracker:{workflow_id}:tasks"
+    tracker_tasks = ShortTermMemory.get(tracker_key) or []
+
+    if not state and not tracker_tasks:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    # Merge and deduplicate tasks from both sources
+    seen      = set()
+    all_tasks = []
+
+    for task in (state or {}).get("tasks", []):
+        tid = task.get("id", "")
+        if tid not in seen:
+            seen.add(tid)
+            all_tasks.append(task)
+
+    for task in tracker_tasks:
+        tid = task.get("id", "")
+        if tid not in seen:
+            seen.add(tid)
+            all_tasks.append(task)
+
+    return {"workflow_id": workflow_id, "tasks": all_tasks, "count": len(all_tasks)}
+
+
+# ── Task Status Update (Employee marks done) ──────────────────────────────────
+
+@router.post("/task/update")
+async def update_task_status(request: TaskUpdateRequest):
     """
-    Trigger workflow execution.
-    
-    Args:
-        request: Workflow trigger request
-        background_tasks: FastAPI background tasks
-        
-    Returns:
-        WorkflowResponse
+    Employee or manager updates task status.
+
+    This is the endpoint called when:
+      - Employee clicks 'Mark Done' in Streamlit dashboard
+      - Manager approves via Swagger UI
+      - Slack webhook receives button click
+
+    Valid statuses: done | in_progress | needs_help | pending
+    """
+    valid_statuses = {"done", "in_progress", "needs_help", "pending", "cancelled"}
+    if request.status not in valid_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{request.status}'. Must be one of: {valid_statuses}",
+        )
+
+    # Update in tracker store
+    tracker_key = f"tracker:{request.workflow_id}:tasks"
+    tasks       = ShortTermMemory.get(tracker_key) or []
+    updated     = False
+
+    for task in tasks:
+        if task.get("id") == request.task_id:
+            from datetime import datetime, timezone
+            task["status"]     = request.status
+            task["updated_at"] = datetime.now(timezone.utc).isoformat()
+            task["updated_by"] = request.updated_by
+            if request.note:
+                task["status_note"] = request.note
+            updated = True
+            logger.info(
+                f"Task updated | task={request.task_id} | "
+                f"status={request.status} | by={request.updated_by}"
+            )
+            break
+
+    if tasks:
+        ShortTermMemory.set(tracker_key, tasks)
+
+    # Also update in workflow state tasks
+    state = ShortTermMemory.get_state(request.workflow_id)
+    if state:
+        for task in state.get("tasks", []):
+            if task.get("id") == request.task_id:
+                from datetime import datetime, timezone
+                task["status"]     = request.status
+                task["updated_at"] = datetime.now(timezone.utc).isoformat()
+                task["updated_by"] = request.updated_by
+                if request.note:
+                    task["status_note"] = request.note
+                updated = True
+                break
+
+    # Log to audit trail
+    audit.log(
+        agent_id="employee_update",
+        action="TASK_STATUS_UPDATED",
+        workflow_id=request.workflow_id,
+        step_name="task_update",
+        input_summary=f"task={request.task_id} | by={request.updated_by}",
+        output_summary=f"status={request.status} | note={request.note}",
+        confidence=1.0,
+    )
+
+    return {
+        "status":  "ok",
+        "updated": updated,
+        "task_id": request.task_id,
+        "new_status": request.status,
+        "message": f"Task marked as '{request.status}' by {request.updated_by}",
+    }
+
+
+# ── Slack Webhook (receives button clicks from Slack) ────────────────────────
+
+@router.post("/slack/webhook")
+async def slack_webhook(request: Request):
+    """
+    Receives interactive button click events from Slack.
+    When employee clicks 'Mark Done' button in Slack DM,
+    Slack sends a POST to this endpoint.
+
+    Button value format: 'action|task_id|workflow_id'
+    e.g. 'done|task_abc123|workflow-uuid-here'
     """
     try:
-        if not app_state.is_running:
-            raise HTTPException(
-                status_code=503,
-                detail="Orchestrator not initialized"
-            )
-        
-        if app_state.orchestrator is None:
-            raise HTTPException(
-                status_code=500,
-                detail="Orchestrator failed to initialize"
-            )
-        
+        body    = await request.form()
+        payload = body.get("payload", "{}")
+
+        import json
+        data = json.loads(payload)
+
+        # Extract action from button click
+        actions = data.get("actions", [])
+        if not actions:
+            return {"ok": True}
+
+        action      = actions[0]
+        action_id   = action.get("action_id", "")
+        value       = action.get("value", "")
+        user        = data.get("user", {}).get("name", "unknown")
+
+        # Parse value: "done|task_id|workflow_id"
+        parts = value.split("|")
+        if len(parts) != 3:
+            logger.warning(f"Invalid Slack button value: {value}")
+            return {"ok": True}
+
+        action_type, task_id, workflow_id = parts
+
+        # Map Slack action to task status
+        status_map = {
+            "done":      "done",
+            "progress":  "in_progress",
+            "help":      "needs_help",
+            "reassign":  "pending",
+        }
+        new_status = status_map.get(action_type, "in_progress")
+
         logger.info(
-            f"Workflow trigger requested",
-            extra={
-                "workflow_name": request.workflow_name,
-                "priority": request.priority
-            }
+            f"Slack button clicked | user={user} | "
+            f"action={action_type} | task={task_id}"
         )
-        
-        # Load workflow
-        workflow = app_state.orchestrator.load_workflow(request.workflow_name)
-        if not workflow:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Workflow '{request.workflow_name}' not found"
-            )
-        
-        # Initialize workflow
-        root_trace_id = app_state.orchestrator.initialize_workflow(
-            request.workflow_name,
-            request.input_data
+
+        # Update task status using same logic as /task/update
+        tracker_key = f"tracker:{workflow_id}:tasks"
+        tasks       = ShortTermMemory.get(tracker_key) or []
+
+        for task in tasks:
+            if task.get("id") == task_id:
+                from datetime import datetime, timezone
+                task["status"]     = new_status
+                task["updated_at"] = datetime.now(timezone.utc).isoformat()
+                task["updated_by"] = user
+                break
+
+        if tasks:
+            ShortTermMemory.set(tracker_key, tasks)
+
+        audit.log(
+            agent_id="slack_webhook",
+            action="TASK_STATUS_UPDATED",
+            workflow_id=workflow_id,
+            step_name="slack_button",
+            input_summary=f"task={task_id} | user={user}",
+            output_summary=f"status={new_status}",
+            confidence=1.0,
         )
-        if not root_trace_id:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to initialize workflow"
-            )
-        
-        # Generate workflow ID (using trace ID as unique identifier)
-        workflow_id = f"{request.workflow_name}_{root_trace_id}"
-        
-        # Execute asynchronously
-        background_tasks.add_task(
-            app_state.orchestrator.execute_workflow,
-            request.workflow_name,
-            request.input_data
-        )
-        
-        logger.info(
-            f"Workflow execution started",
-            extra={"workflow_id": workflow_id, "workflow_name": request.workflow_name}
-        )
-        
-        return {
-            "success": True,
-            "workflow_id": workflow_id,
-            "workflow_name": request.workflow_name,
-            "status": "executing",
-            "message": f"Workflow '{request.workflow_name}' started"
-        }
-    
-    except HTTPException as e:
-        raise e
+
+        return {"ok": True, "message": f"Task {task_id} marked as {new_status}"}
+
     except Exception as e:
-        logger.error(f"Workflow trigger error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Slack webhook error: {e}")
+        return {"ok": True}
 
 
-@workflow_router.get("/{workflow_id}", response_model=Dict[str, Any])
-async def get_workflow_status(workflow_id: str) -> Dict[str, Any]:
-    """
-    Get workflow execution status.
-    
-    Args:
-        workflow_id: Workflow ID
-        
-    Returns:
-        Workflow status
-    """
-    try:
-        if not app_state.is_running or app_state.orchestrator is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Orchestrator not initialized"
-            )
-        
-        state = app_state.orchestrator.state_manager.get_workflow_state(workflow_id)
-        
-        if not state:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Workflow '{workflow_id}' not found"
-            )
-        
-        return {
-            "workflow_id": workflow_id,
-            "status": state.get("status"),
-            "started_at": state.get("started_at"),
-            "completed_at": state.get("completed_at"),
-            "metadata": state.get("metadata", {})
-        }
-    
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        logger.error(f"Get status error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+# ── Human Approval Gate ───────────────────────────────────────────────────────
+
+@router.post("/workflow/approve")
+async def approve_workflow_step(request: TaskApprovalRequest):
+    """Human approves or rejects a step that hit the human gate"""
+    logger.info(
+        f"Human approval | workflow={request.workflow_id} | "
+        f"approved={request.approved}"
+    )
+    ShortTermMemory.set_human_approval(
+        workflow_id=request.workflow_id,
+        step_name=request.step_name,
+        approved=request.approved,
+        human_input=request.human_input or {},
+        approver_id=request.approver_id,
+    )
+    audit.log(
+        agent_id="human_gate",
+        action="HUMAN_APPROVAL_RECEIVED",
+        workflow_id=request.workflow_id,
+        step_name=request.step_name,
+        output_summary=f"approved={request.approved} by {request.approver_id}",
+        confidence=1.0,
+    )
+    return {"status": "ok", "message": "Approval recorded"}
 
 
-@workflow_router.get("/{workflow_id}/state")
-async def get_workflow_state(workflow_id: str) -> Dict[str, Any]:
-    """
-    Get detailed workflow execution state.
-    
-    Args:
-        workflow_id: Workflow ID
-        
-    Returns:
-        Detailed workflow state
-    """
-    try:
-        if not app_state.is_running or app_state.orchestrator is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Orchestrator not initialized"
-            )
-        
-        state = app_state.orchestrator.state_manager.get_workflow_state(workflow_id)
-        
-        if not state:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Workflow '{workflow_id}' not found"
-            )
-        
-        # Calculate progress
-        steps = state.get("steps", {})
-        completed = len([s for s in steps.values() if s.get("status") == "completed"])
-        total = len(steps)
-        
-        return {
-            "workflow_id": workflow_id,
-            "workflow_name": state.get("workflow_name"),
-            "status": state.get("status"),
-            "started_at": state.get("started_at"),
-            "completed_at": state.get("completed_at"),
-            "current_step": state.get("current_step"),
-            "completed_steps": completed,
-            "total_steps": total,
-            "progress_percentage": (completed / total * 100) if total > 0 else 0,
-            "steps_detail": [
-                {
-                    "step_id": step_id,
-                    "status": step.get("status"),
-                    "started_at": step.get("started_at"),
-                    "completed_at": step.get("completed_at"),
-                    "retry_count": step.get("retry_count", 0)
-                }
-                for step_id, step in steps.items()
-            ]
-        }
-    
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        logger.error(f"Get state error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+# ── Audit Trail ───────────────────────────────────────────────────────────────
+
+@router.get("/audit/{workflow_id}")
+async def get_audit_trail(workflow_id: str):
+    """Retrieve full audit trail for a workflow"""
+    entries = audit.get_trail(workflow_id)
+    return {"workflow_id": workflow_id, "entries": entries, "count": len(entries)}
 
 
-@workflow_router.get("")
-async def list_workflows(
-    status: Optional[str] = Query(None)
-) -> Dict[str, Any]:
-    """
-    List all workflows.
-    
-    Args:
-        status: Optional filter by status
-        
-    Returns:
-        List of workflows
-    """
-    try:
-        # Load all workflow files
-        workflows_dir = Path(config.full_workflows_dir)
-        workflows = []
-        
-        for wf_file in workflows_dir.glob("*.json"):
-            try:
-                wf_data = load_json_file(str(wf_file))
-                workflows.append({
-                    "name": wf_data.get("name"),
-                    "description": wf_data.get("description", ""),
-                    "steps": len(wf_data.get("steps", []))
-                })
-            except Exception as e:
-                logger.warning(f"Failed to load {wf_file}: {str(e)}")
-        
-        return {
-            "success": True,
-            "total_workflows": len(workflows),
-            "workflows": workflows
-        }
-    
-    except Exception as e:
-        logger.error(f"List workflows error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# Audit Routes
-@audit_router.get("/logs")
-async def get_audit_logs(
-    workflow_id: Optional[str] = Query(None),
-    agent_name: Optional[str] = Query(None),
-    action_type: Optional[str] = Query(None),
-    limit: int = Query(100, ge=1, le=1000)
-) -> Dict[str, Any]:
-    """
-    Query audit logs.
-    
-    Args:
-        workflow_id: Optional filter by workflow
-        agent_name: Optional filter by agent
-        action_type: Optional filter by action type
-        limit: Max results
-        
-    Returns:
-        Audit logs
-    """
-    try:
-        trace_logs = load_jsonl_file(str(config.full_trace_log_file))
-        
-        # Filter logs
-        filtered = trace_logs
-        
-        if workflow_id:
-            filtered = [l for l in filtered if l.get("workflow_id") == workflow_id]
-        
-        if agent_name:
-            filtered = [l for l in filtered if l.get("from_agent") == agent_name]
-        
-        if action_type:
-            filtered = [l for l in filtered if l.get("log_type") == action_type]
-        
-        # Limit results
-        filtered = filtered[-limit:]
-        
-        return {
-            "success": True,
-            "total_logs": len(trace_logs),
-            "filtered_count": len(filtered),
-            "logs": filtered
-        }
-    
-    except Exception as e:
-        logger.error(f"Get audit logs error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@audit_router.get("/trace/{workflow_id}")
-async def get_workflow_trace(workflow_id: str) -> Dict[str, Any]:
-    """
-    Get complete trace for workflow.
-    
-    Args:
-        workflow_id: Workflow ID
-        
-    Returns:
-        Workflow execution trace
-    """
-    try:
-        project_root = Path(config.PROJECT_ROOT)
-        trace_log_file = str(project_root / config.TRACE_LOG_FILE)
-        decision_log_file = str(project_root / config.DECISION_LOG_FILE)
-        audit_logger = AuditLogger(trace_log_file, decision_log_file)
-        trace = audit_logger.get_trace_for_workflow(workflow_id)
-        
-        return {
-            "success": True,
-            "workflow_id": workflow_id,
-            "trace_count": len(trace),
-            "trace": trace
-        }
-    
-    except Exception as e:
-        logger.error(f"Get trace error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@audit_router.get("/decisions/{workflow_id}")
-async def get_workflow_decisions(workflow_id: str) -> Dict[str, Any]:
-    """
-    Get all decisions made for workflow.
-    
-    Args:
-        workflow_id: Workflow ID
-        
-    Returns:
-        Decision logs
-    """
-    try:
-        project_root = Path(config.PROJECT_ROOT)
-        trace_log_file = str(project_root / config.TRACE_LOG_FILE)
-        decision_log_file = str(project_root / config.DECISION_LOG_FILE)
-        audit_logger = AuditLogger(trace_log_file, decision_log_file)
-        decisions = audit_logger.get_decisions_for_workflow(workflow_id)
-        
-        return {
-            "success": True,
-            "workflow_id": workflow_id,
-            "decision_count": len(decisions),
-            "decisions": decisions
-        }
-    
-    except Exception as e:
-        logger.error(f"Get decisions error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# Agent Routes
-@agent_router.post("/health")
-async def agent_health_check(request: AgentHealthRequest) -> Dict[str, Any]:
-    """
-    Record agent health check.
-    
-    Args:
-        request: Agent health info
-        
-    Returns:
-        Health check response
-    """
-    try:
-        logger.info(
-            f"Agent health check received",
-            extra={
-                "agent_name": request.agent_name,
-                "status": request.status,
-                "metrics": request.metrics
-            }
-        )
-        
-        return {
-            "success": True,
-            "agent_name": request.agent_name,
-            "acknowledged": True,
-            "timestamp": None  # Will be set by JSON encoder
-        }
-    
-    except Exception as e:
-        logger.error(f"Health check error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@agent_router.get("")
-async def list_agents() -> Dict[str, Any]:
-    """
-    List registered agents.
-    
-    Returns:
-        List of agents
-    """
-    try:
-        # Get agent registry from communication router
-        from communication.router import get_router
-        
-        router = get_router()
-        agents = router.registry.list_agents()
-        
-        return {
-            "success": True,
-            "total_agents": len(agents),
-            "agents": agents
-        }
-    
-    except Exception as e:
-        logger.error(f"List agents error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@agent_router.get("/{agent_name}")
-async def get_agent_info(agent_name: str) -> Dict[str, Any]:
-    """
-    Get agent information.
-    
-    Args:
-        agent_name: Agent name
-        
-    Returns:
-        Agent info
-    """
-    try:
-        from communication.router import get_router
-        
-        router = get_router()
-        agent = router.registry.get_agent(agent_name)
-        
-        if not agent:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Agent '{agent_name}' not found"
-            )
-        
-        return {
-            "success": True,
-            "agent_name": agent_name,
-            "registered": True,
-            "has_handler": router.registry.has_agent(agent_name)
-        }
-    
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        logger.error(f"Get agent info error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+@router.get("/audit/all/recent")
+async def get_recent_audit(limit: int = 50):
+    """Get most recent audit log entries across all workflows"""
+    return {"entries": audit.get_recent(limit=limit)}
