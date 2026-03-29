@@ -1,0 +1,76 @@
+{
+  "id": "employee_onboarding",
+  "name": "Employee Onboarding Workflow",
+  "description": "Automated new-hire onboarding from offer acceptance to first-week setup",
+  "sla_hours": 48,
+  "steps": [
+    {
+      "id": "fetch_employee_data",
+      "name": "Fetch employee record from HRMS",
+      "agent": "data_agent",
+      "critical": true,
+      "source": "employee_db",
+      "params": {}
+    },
+    {
+      "id": "decide_access_level",
+      "name": "Determine system access level",
+      "agent": "decision_agent",
+      "critical": true,
+      "params": { "prompt_key": "decide_access_level" }
+    },
+    {
+      "id": "provision_access",
+      "name": "Provision email, Slack, GitHub, Jira access",
+      "agent": "action_agent",
+      "critical": true,
+      "params": {
+        "action_type": "provision_access",
+        "systems": ["email", "slack", "github", "jira", "confluence"]
+      }
+    },
+    {
+      "id": "send_welcome_email",
+      "name": "Send welcome email with credentials",
+      "agent": "action_agent",
+      "critical": true,
+      "params": {
+        "action_type": "send_email",
+        "subject": "Welcome to the team!",
+        "body": "Your accounts have been set up. Please find your credentials below."
+      }
+    },
+    {
+      "id": "schedule_onboarding_meetings",
+      "name": "Schedule day-1 orientation meetings",
+      "agent": "action_agent",
+      "critical": false,
+      "params": {
+        "action_type": "create_calendar_event",
+        "title": "New Hire Orientation",
+        "duration_minutes": 60
+      }
+    },
+    {
+      "id": "notify_manager",
+      "name": "Notify manager that onboarding is complete",
+      "agent": "action_agent",
+      "critical": false,
+      "params": {
+        "action_type": "send_slack",
+        "message": "New hire onboarding is complete. All systems provisioned."
+      }
+    },
+    {
+      "id": "log_onboarding_complete",
+      "name": "Write onboarding completion record",
+      "agent": "action_agent",
+      "critical": true,
+      "params": {
+        "action_type": "write_db",
+        "table": "onboarding_records",
+        "data": { "status": "completed" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "id": "meeting_workflow",
+  "name": "Meeting Intelligence Workflow",
+  "description": "End-to-end meeting transcript processing — from upload to task tracking",
+  "sla_hours": 1,
+  "steps": [
+    {
+      "id": "parse_transcript",
+      "name": "Parse transcript",
+      "agent": "transcript_parser",
+      "critical": true,
+      "params": {}
+    },
+    {
+      "id": "extract_decisions",
+      "name": "Extract decisions and action items",
+      "agent": "decision_extractor",
+      "critical": true,
+      "params": { "prompt_key": "extract_decisions" }
+    },
+    {
+      "id": "generate_tasks",
+      "name": "Generate structured tasks",
+      "agent": "task_generator",
+      "critical": true,
+      "params": {}
+    },
+    {
+      "id": "assign_owners",
+      "name": "Assign task owners",
+      "agent": "owner_assigner",
+      "critical": true,
+      "params": {}
+    },
+    {
+      "id": "notify_owners",
+      "name": "Notify task owners via Slack / email",
+      "agent": "action_agent",
+      "critical": false,
+      "params": { "action_type": "send_slack" }
+    },
+    {
+      "id": "register_tracking",
+      "name": "Register tasks for progress tracking",
+      "agent": "progress_tracker",
+      "critical": false,
+      "params": {}
+    }
+  ]
+}

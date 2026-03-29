@@ -1,0 +1,81 @@
+{
+  "id": "contract_lifecycle",
+  "name": "Contract Lifecycle Workflow",
+  "description": "Full contract lifecycle from draft through execution and renewal tracking",
+  "sla_hours": 96,
+  "steps": [
+    {
+      "id": "fetch_contract_data",
+      "name": "Fetch contract details",
+      "agent": "data_agent",
+      "critical": true,
+      "source": "contract_db",
+      "params": {}
+    },
+    {
+      "id": "decide_review_required",
+      "name": "Determine if legal review is required",
+      "agent": "decision_agent",
+      "critical": true,
+      "params": { "prompt_key": "decide_legal_review" }
+    },
+    {
+      "id": "route_to_legal",
+      "name": "Route contract to legal team",
+      "agent": "action_agent",
+      "critical": false,
+      "params": {
+        "action_type": "send_email",
+        "to": "legal@company.com",
+        "subject": "Contract review required",
+        "body": "Please review the attached contract and return within 48 hours."
+      }
+    },
+    {
+      "id": "notify_counterparty",
+      "name": "Send contract to counterparty",
+      "agent": "action_agent",
+      "critical": true,
+      "params": { "action_type": "send_contract" }
+    },
+    {
+      "id": "track_signature",
+      "name": "Monitor for signature receipt",
+      "agent": "decision_agent",
+      "critical": true,
+      "params": { "prompt_key": "track_contract_signature" }
+    },
+    {
+      "id": "execute_contract",
+      "name": "Execute contract and log in system",
+      "agent": "action_agent",
+      "critical": true,
+      "params": {
+        "action_type": "write_db",
+        "table": "executed_contracts",
+        "data": { "status": "executed" }
+      }
+    },
+    {
+      "id": "set_renewal_reminder",
+      "name": "Schedule renewal reminder 30 days before expiry",
+      "agent": "action_agent",
+      "critical": false,
+      "params": {
+        "action_type": "create_calendar_event",
+        "title": "Contract Renewal Review",
+        "duration_minutes": 30
+      }
+    },
+    {
+      "id": "notify_stakeholders",
+      "name": "Notify all stakeholders of execution",
+      "agent": "action_agent",
+      "critical": false,
+      "params": {
+        "action_type": "send_slack",
+        "message": "Contract executed successfully. All parties notified. Renewal reminder set."
+      }
+    }
+  ]
+}

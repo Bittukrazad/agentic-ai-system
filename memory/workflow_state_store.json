@@ -1,0 +1,138 @@
+{
+  "decisions:onboarding:": [
+    {
+      "decision": "proceed",
+      "confidence": 0.95,
+      "timestamp": "2026-03-25T15:04:15.845396+00:00"
+    },
+    {
+      "decision": "proceed",
+      "confidence": 0.95,
+      "timestamp": "2026-03-26T14:03:59.482746+00:00"
+    },
+    {
+      "decision": "proceed",
+      "confidence": 0.95,
+      "timestamp": "2026-03-26T18:54:08.127907+00:00"
+    },
+    {
+      "decision": "initiate_onboarding",
+      "confidence": 0.9999999999999999,
+      "timestamp": "2026-03-26T19:28:18.252445+00:00"
+    },
+    {
+      "decision": "initiate_onboarding",
+      "confidence": 0.9999999999999999,
+      "timestamp": "2026-03-27T16:38:48.615882+00:00"
+    },
+    {
+      "decision": "initiate_onboarding",
+      "confidence": 0.9999999999999999,
+      "timestamp": "2026-03-28T14:06:15.652806+00:00"
+    },
+    {
+      "decision": "initiate_onboarding",
+      "confidence": 0.9999999999999999,
+      "timestamp": "2026-03-28T22:25:41.945770+00:00"
+    },
+    {
+      "decision": "initiate_onboarding",
+      "confidence": 0.9999999999999999,
+      "timestamp": "2026-03-28T22:29:27.573701+00:00"
+    },
+    {
+      "decision": "initiate_onboarding",
+      "confidence": 0.9999999999999999,
+      "timestamp": "2026-03-28T22:38:58.474523+00:00"
+    },
+    {
+      "decision": "initiate_onboarding",
+      "confidence": 0.9999999999999999,
+      "timestamp": "2026-03-28T23:05:18.504283+00:00"
+    }
+  ],
+  "decisions:procurement:": [
+    {
+      "decision": "proceed",
+      "confidence": 0.95,
+      "timestamp": "2026-03-25T15:05:43.852538+00:00"
+    },
+    {
+      "decision": "proceed",
+      "confidence": 0.95,
+      "timestamp": "2026-03-25T15:05:43.902717+00:00"
+    },
+    {
+      "decision": "proceed",
+      "confidence": 0.95,
+      "timestamp": "2026-03-26T14:05:38.492556+00:00"
+    },
+    {
+      "decision": "proceed",
+      "confidence": 0.95,
+      "timestamp": "2026-03-26T14:05:38.553029+00:00"
+    },
+    {
+      "decision": "initiate_procurement_process",
+      "confidence": 0.95,
+      "timestamp": "2026-03-28T22:40:37.053475+00:00"
+    },
+    {
+      "decision": "initiate_procurement_process",
+      "confidence": 0.95,
+      "timestamp": "2026-03-28T22:40:37.663254+00:00"
+    },
+    {
+      "decision": "initiate_procurement_process",
+      "confidence": 0.95,
+      "timestamp": "2026-03-28T23:08:12.092103+00:00"
+    },
+    {
+      "decision": "initiate_procurement_process",
+      "confidence": 0.95,
+      "timestamp": "2026-03-28T23:08:12.995255+00:00"
+    }
+  ],
+  "decisions:contract:": [
+    {
+      "decision": "proceed",
+      "confidence": 0.95,
+      "timestamp": "2026-03-25T15:05:54.389884+00:00"
+    },
+    {
+      "decision": "proceed",
+      "confidence": 0.95,
+      "timestamp": "2026-03-25T15:05:54.431127+00:00"
+    },
+    {
+      "decision": "proceed",
+      "confidence": 0.95,
+      "timestamp": "2026-03-26T14:05:50.681133+00:00"
+    },
+    {
+      "decision": "proceed",
+      "confidence": 0.95,
+      "timestamp": "2026-03-26T14:05:50.742769+00:00"
+    },
+    {
+      "decision": "initiate_contract_review",
+      "confidence": 0.7999999999999999,
+      "timestamp": "2026-03-28T22:41:02.685229+00:00"
+    },
+    {
+      "decision": "initiate_contract_review",
+      "confidence": 0.7999999999999999,
+      "timestamp": "2026-03-28T22:41:05.608903+00:00"
+    },
+    {
+      "decision": "initiate_contract_review",
+      "confidence": 0.7999999999999999,
+      "timestamp": "2026-03-28T23:10:41.275716+00:00"
+    },
+    {
+      "decision": "initiate_contract_review",
+      "confidence": 0.7999999999999999,
+      "timestamp": "2026-03-28T23:10:42.193310+00:00"
+    }
+  ]
+}

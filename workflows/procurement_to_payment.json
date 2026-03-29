@@ -1,0 +1,78 @@
+{
+  "id": "procurement_to_payment",
+  "name": "Procurement-to-Payment Workflow",
+  "description": "End-to-end procurement from purchase request through vendor payment",
+  "sla_hours": 72,
+  "steps": [
+    {
+      "id": "fetch_vendor_data",
+      "name": "Fetch vendor record and contract",
+      "agent": "data_agent",
+      "critical": true,
+      "source": "vendor_db",
+      "params": {}
+    },
+    {
+      "id": "fetch_approval_rules",
+      "name": "Fetch approval authority matrix",
+      "agent": "data_agent",
+      "critical": true,
+      "source": "approval_rules",
+      "params": {}
+    },
+    {
+      "id": "decide_approval_route",
+      "name": "Determine approval route based on amount",
+      "agent": "decision_agent",
+      "critical": true,
+      "params": { "prompt_key": "decide_approval_route" }
+    },
+    {
+      "id": "create_purchase_order",
+      "name": "Create and number the purchase order",
+      "agent": "action_agent",
+      "critical": true,
+      "params": { "action_type": "create_purchase_order" }
+    },
+    {
+      "id": "notify_approver",
+      "name": "Notify designated approver",
+      "agent": "action_agent",
+      "critical": true,
+      "params": {
+        "action_type": "send_email",
+        "subject": "Approval required: Purchase Order",
+        "body": "A purchase order requires your approval. Please review and respond within 24 hours."
+      }
+    },
+    {
+      "id": "verify_approval",
+      "name": "Verify approval received within SLA",
+      "agent": "decision_agent",
+      "critical": true,
+      "params": { "prompt_key": "verify_approval_received" }
+    },
+    {
+      "id": "notify_vendor",
+      "name": "Notify vendor of approved PO",
+      "agent": "action_agent",
+      "critical": true,
+      "params": {
+        "action_type": "send_email",
+        "subject": "Purchase Order Approved",
+        "body": "Your purchase order has been approved. Please proceed with delivery per agreed terms."
+      }
+    },
+    {
+      "id": "log_payment_record",
+      "name": "Log payment obligation in finance system",
+      "agent": "action_agent",
+      "critical": true,
+      "params": {
+        "action_type": "write_db",
+        "table": "payment_obligations",
+        "data": { "status": "approved", "payment_terms": "Net 30" }
+      }
+    }
+  ]
+}
